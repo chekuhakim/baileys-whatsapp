@@ -488,7 +488,122 @@ app.post('/api/send-message', async (req, res) => {
     }
 })
 
-// Send image
+// Send file (supports images, documents, videos, audio, etc.)
+app.post('/api/send-file', upload.single('file'), async (req, res) => {
+    try {
+        const { phoneNumber, caption } = req.body
+        const uploadedFile = req.file
+
+        if (!phoneNumber) {
+            return res.status(400).json({
+                success: false,
+                error: 'Phone number is required'
+            })
+        }
+
+        if (!uploadedFile) {
+            return res.status(400).json({
+                success: false,
+                error: 'File is required'
+            })
+        }
+
+        if (!globalSock) {
+            return res.status(500).json({
+                success: false,
+                error: 'WhatsApp not connected'
+            })
+        }
+
+        // Format phone number
+        let formattedNumber = phoneNumber.replace(/\D/g, '')
+        if (!formattedNumber.includes('@s.whatsapp.net')) {
+            formattedNumber = `${formattedNumber}@s.whatsapp.net`
+        }
+
+        // Read file
+        const fileBuffer = fs.readFileSync(uploadedFile.path)
+        const fileName = uploadedFile.originalname
+        const mimeType = uploadedFile.mimetype
+
+        // Determine message type based on MIME type
+        let messageData = {}
+        let fileType = 'document'
+
+        if (mimeType.startsWith('image/')) {
+            // Images
+            messageData = {
+                image: fileBuffer,
+                caption: caption || '',
+                mimetype: mimeType
+            }
+            fileType = 'image'
+        } else if (mimeType.startsWith('video/')) {
+            // Videos
+            messageData = {
+                video: fileBuffer,
+                caption: caption || '',
+                mimetype: mimeType
+            }
+            fileType = 'video'
+        } else if (mimeType.startsWith('audio/')) {
+            // Audio files
+            messageData = {
+                audio: fileBuffer,
+                mimetype: mimeType
+            }
+            fileType = 'audio'
+        } else {
+            // Documents (PDF, DOC, TXT, etc.)
+            messageData = {
+                document: fileBuffer,
+                mimetype: mimeType,
+                fileName: fileName,
+                caption: caption || ''
+            }
+            fileType = 'document'
+        }
+
+        // Send file
+        const result = await globalSock.sendMessage(formattedNumber, messageData)
+
+        // Clean up uploaded file
+        fs.unlinkSync(uploadedFile.path)
+
+        addLog('message_out', `${fileType} sent to ${phoneNumber}`, {
+            to: formattedNumber,
+            messageId: result?.key?.id,
+            fileName: fileName,
+            fileType: fileType,
+            mimeType: mimeType,
+            caption: caption || '(no caption)'
+        })
+
+        res.json({
+            success: true,
+            message: `${fileType} sent successfully`,
+            messageId: result?.key?.id,
+            to: formattedNumber,
+            fileType: fileType,
+            fileName: fileName
+        })
+
+    } catch (error) {
+        addLog('error', `Error sending file: ${error.message}`)
+
+        // Clean up file if it exists
+        if (req.file && fs.existsSync(req.file.path)) {
+            fs.unlinkSync(req.file.path)
+        }
+
+        res.status(500).json({
+            success: false,
+            error: error.message
+        })
+    }
+})
+
+// Keep the old send-image endpoint for backward compatibility
 app.post('/api/send-image', upload.single('image'), async (req, res) => {
     try {
         const { phoneNumber, caption } = req.body
@@ -533,8 +648,8 @@ app.post('/api/send-image', upload.single('image'), async (req, res) => {
         // Clean up uploaded file
         fs.unlinkSync(imageFile.path)
 
-        addLog('message_out', `Image sent to ${phoneNumber}`, { 
-            to: formattedNumber, 
+        addLog('message_out', `Image sent to ${phoneNumber}`, {
+            to: formattedNumber,
             messageId: result?.key?.id,
             caption: caption || '(no caption)'
         })

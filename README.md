@@ -207,13 +207,29 @@ Content-Type: application/json
 }
 ```
 
-#### Send Image
+#### Send File (Universal)
+```http
+POST /api/send-file
+Content-Type: multipart/form-data
+
+phoneNumber: 60123456789
+file: [file - auto-detects type]
+caption: Optional caption
+```
+
+**Supported File Types:**
+- **Images:** JPG, PNG, GIF, WebP
+- **Videos:** MP4, AVI, MOV, MKV
+- **Audio:** MP3, WAV, OGG, M4A
+- **Documents:** PDF, DOC, DOCX, TXT, XLS, XLSX, PPT, PPTX, ZIP, RAR
+
+#### Send Image (Legacy)
 ```http
 POST /api/send-image
 Content-Type: multipart/form-data
 
 phoneNumber: 60123456789
-image: [file]
+image: [image file]
 caption: Optional caption
 ```
 
@@ -268,6 +284,7 @@ import requests
 
 API_KEY = 'wa_your_api_key_here'
 
+# Send text message
 response = requests.post(
     'https://yourdomain.com/api/send-message',
     headers={'X-API-Key': API_KEY},
@@ -276,14 +293,35 @@ response = requests.post(
         'message': 'Hello from API!'
     }
 )
+
+# Send file
+with open('/path/to/your/file.pdf', 'rb') as file:
+    files = {'file': file}
+    data = {'phoneNumber': '60123456789', 'caption': 'Check this out!'}
+    headers = {'X-API-Key': API_KEY}
+
+    response = requests.post(
+        'https://yourdomain.com/api/send-file',
+        headers=headers,
+        files=files,
+        data=data
+    )
 ```
 
 #### cURL
 ```bash
+# Send text message
 curl -X POST https://yourdomain.com/api/send-message \
   -H "Content-Type: application/json" \
   -H "X-API-Key: wa_your_api_key_here" \
   -d '{"phoneNumber": "60123456789", "message": "Hello from API!"}'
+
+# Send file (any type)
+curl -X POST https://yourdomain.com/api/send-file \
+  -H "X-API-Key: wa_your_api_key_here" \
+  -F "phoneNumber=60123456789" \
+  -F "file=@/path/to/your/file.pdf" \
+  -F "caption=Check out this document"
 ```
 
 ## 🤖 Auto-Reply System
