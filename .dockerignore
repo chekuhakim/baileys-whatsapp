@@ -1,0 +1,43 @@
+# Dependencies
+node_modules
+dashboard/node_modules
+
+# Git
+.git
+.gitignore
+
+# IDE
+.vscode
+.idea
+*.swp
+*.swo
+
+# Logs and databases (will be mounted as volumes)
+*.log
+logs.db
+logs.db-journal
+
+# Auth data (will be mounted as volume)
+auth_info_baileys
+
+# Uploads (will be mounted as volume)
+uploads
+
+# Build artifacts
+dashboard/dist
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Docker
+Dockerfile
+docker-compose.yml
+.dockerignore
+
+# Documentation
+*.md
+!API_GUIDE.md
+
+# Data directory (created by docker-compose)
+data
