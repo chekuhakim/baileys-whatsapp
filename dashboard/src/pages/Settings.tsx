@@ -47,7 +47,8 @@ const endpoints = [
   { method: 'POST', path: '/api/reconnect', description: 'Reconnect to WhatsApp', auth: true },
   { method: 'POST', path: '/api/reset-auth', description: 'Reset authentication', auth: true },
   { method: 'POST', path: '/api/send-message', description: 'Send a text message', auth: true },
-  { method: 'POST', path: '/api/send-image', description: 'Send an image with caption', auth: true },
+  { method: 'POST', path: '/api/send-file', description: 'Send any file (images, videos, audio, documents)', auth: true },
+  { method: 'POST', path: '/api/send-image', description: 'Send an image with caption (legacy)', auth: true },
   { method: 'GET', path: '/api/apikey', description: 'Get current API key', auth: true },
   { method: 'POST', path: '/api/apikey/regenerate', description: 'Regenerate API key', auth: true },
 ]
