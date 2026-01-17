@@ -74,7 +74,7 @@ node bot.js
 The API key is automatically generated on first run and stored in the SQLite database. You can find it in the console logs:
 
 ```
-🔐 API Key: wa_a377c64557980d29769456640ca33b2e4d0a3fc967072734
+🔐 API Key: wa_abc123def456ghi789jkl012mno345pqr678stu901vwx
 ```
 
 ## 📱 WhatsApp Setup
