@@ -416,6 +416,27 @@ This project is open source. Please check the license file for details.
 4. Test thoroughly
 5. Submit a pull request
 
+## 🚀 Development Workflow
+
+### GitHub Push Script
+
+For easy pushing with authentication:
+
+```bash
+# Setup credentials (one-time)
+echo "GITHUB_TOKEN=your_token_here" > .github_credentials
+echo "GIT_USER=your_username" >> .github_credentials
+echo "GIT_EMAIL=your_email" >> .github_credentials
+
+# Push changes
+./push.sh "Your commit message"
+
+# Or use default message
+./push.sh
+```
+
+**Note:** The `.github_credentials` file is gitignored for security.
+
 ## 📞 Support
 
 - **Issues:** [GitHub Issues](https://github.com/chekuhakim/baileys-whatsapp/issues)
