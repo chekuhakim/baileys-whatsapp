@@ -17,6 +17,7 @@ uploads/
 .env
 .env.local
 .env.*.local
+.github_credentials
 
 # Build output
 dashboard/dist/
