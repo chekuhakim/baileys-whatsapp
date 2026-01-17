@@ -1,5 +1,7 @@
 # WhatsApp Bot with Dashboard - Baileys
 
+![WhatsApp Bot Dashboard](image.png)
+
 A powerful WhatsApp bot built with [Baileys](https://github.com/WhiskeySockets/Baileys) that provides a complete web dashboard for managing WhatsApp connections, sending messages, viewing logs, and more.
 
 ## 🌟 Features
