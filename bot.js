@@ -9,7 +9,8 @@ const crypto = require('crypto')
 const Database = require('better-sqlite3')
 
 // Initialize SQLite database for logs and config
-const db = new Database('logs.db')
+const dbPath = process.env.NODE_ENV === 'production' ? '/app/data/logs.db' : 'logs.db'
+const db = new Database(dbPath)
 
 // Create tables if not exists
 db.exec(`
@@ -322,21 +323,33 @@ app.post('/api/request-pairing', async (req, res) => {
             })
         }
 
-        // Format phone number (remove + and ensure it has proper format)
+        // Format phone number (remove + and non-digits)
         let formattedNumber = phoneNumber.replace(/\D/g, '') // Remove non-digits
 
-        if (formattedNumber.startsWith('60')) {
-            formattedNumber = formattedNumber.substring(2) // Remove 60 prefix
-        }
-
-        if (!globalSock) {
-            return res.status(500).json({
-                success: false,
-                error: 'WhatsApp not initialized'
-            })
-        }
-
         addLog('api', `Requesting pairing code for: ${formattedNumber}`)
+
+        // If no socket exists, initialize WhatsApp first
+        if (!globalSock) {
+            addLog('connection', 'Initializing WhatsApp for pairing...')
+            await initWhatsAppForPairing()
+            
+            // Wait for socket to be ready
+            let attempts = 0
+            while (!globalSock && attempts < 10) {
+                await new Promise(resolve => setTimeout(resolve, 500))
+                attempts++
+            }
+            
+            if (!globalSock) {
+                return res.status(500).json({
+                    success: false,
+                    error: 'Failed to initialize WhatsApp connection'
+                })
+            }
+        }
+
+        // Wait a bit for the socket to be fully ready
+        await new Promise(resolve => setTimeout(resolve, 2000))
 
         const pairingCode = await globalSock.requestPairingCode(formattedNumber)
 
@@ -588,7 +601,7 @@ if (fs.existsSync(dashboardPath)) {
     app.use(express.static(dashboardPath))
     
     // SPA catch-all route - serve index.html for any non-API routes
-    app.get('*', (req, res) => {
+    app.get('/{*splat}', (req, res) => {
         // Don't catch API routes
         if (req.path.startsWith('/api') || req.path === '/health') {
             return res.status(404).json({ error: 'Not found' })
@@ -609,6 +622,95 @@ app.listen(PORT, () => {
     console.log(`🔐 API Key: ${API_KEY}`)
     console.log(`   Use header: X-API-Key: ${API_KEY}`)
 })
+
+// Initialize WhatsApp for pairing (without auto-requesting code)
+async function initWhatsAppForPairing() {
+    // Load auth state from files
+    const { state, saveCreds } = await useMultiFileAuthState('auth_info_baileys')
+
+    // Create WhatsApp socket
+    const sock = makeWASocket({
+        auth: state,
+        printQRInTerminal: false,
+        logger: require('pino')({ level: 'silent' })
+    })
+
+    // Store socket globally
+    globalSock = sock
+    connectionStatus = 'connecting'
+
+    // Handle connection updates
+    sock.ev.on('connection.update', async (update) => {
+        const { connection, lastDisconnect } = update
+
+        if (connection === 'close') {
+            connectionStatus = 'disconnected'
+            const shouldReconnect = (lastDisconnect?.error instanceof Boom)
+                ? lastDisconnect.error.output.statusCode !== DisconnectReason.loggedOut
+                : true
+
+            if (shouldReconnect) {
+                addLog('connection', 'Connection closed, reconnecting...')
+                globalSock = null
+                setTimeout(() => connectToWhatsApp(), 5000)
+            } else {
+                addLog('connection', 'Connection logged out')
+                globalSock = null
+            }
+        } else if (connection === 'connecting') {
+            connectionStatus = 'connecting'
+            addLog('connection', 'Connecting to WhatsApp...')
+        } else if (connection === 'open') {
+            connectionStatus = 'open'
+            connectedNumber = sock.user?.id?.split(':')[0] || sock.user?.id?.split('@')[0] || null
+            addLog('connection', `WhatsApp connected! Number: ${connectedNumber}`)
+            console.log('✅ WhatsApp connected!')
+            console.log(`📡 API ready at http://localhost:${PORT}`)
+        }
+    })
+
+    // Save credentials when updated
+    sock.ev.on('creds.update', saveCreds)
+
+    // Handle incoming messages
+    sock.ev.on('messages.upsert', async ({ messages }) => {
+        for (const msg of messages) {
+            if (!msg.message || msg.key.fromMe) continue
+
+            const sender = msg.key.remoteJid
+            const messageType = Object.keys(msg.message)[0]
+
+            let messageContent = ''
+            if (messageType === 'conversation') {
+                messageContent = msg.message.conversation
+            } else if (messageType === 'extendedTextMessage') {
+                messageContent = msg.message.extendedTextMessage.text
+            } else if (messageType === 'imageMessage') {
+                messageContent = msg.message.imageMessage.caption || '[Image]'
+            }
+
+            addLog('message_in', `Message from ${sender}: ${messageContent}`, {
+                from: sender,
+                type: messageType,
+                content: messageContent
+            })
+
+            // AUTO-REPLY LOGIC
+            if (messageContent.toLowerCase() === 'bong') {
+                await sock.sendMessage(sender, { text: 'bing' })
+                addLog('message_out', 'Auto-replied: bing', { to: sender })
+            } else if (messageContent.toLowerCase() === 'hello') {
+                await sock.sendMessage(sender, { text: 'Hi there! 👋' })
+                addLog('message_out', 'Auto-replied: Hi there!', { to: sender })
+            } else if (messageContent.toLowerCase() === 'ping') {
+                await sock.sendMessage(sender, { text: 'pong 🏓' })
+                addLog('message_out', 'Auto-replied: pong', { to: sender })
+            }
+        }
+    })
+
+    return sock
+}
 
 async function connectToWhatsApp() {
     // Load auth state from files
@@ -655,26 +757,11 @@ async function connectToWhatsApp() {
         }
     })
 
-    // Handle pairing code for phone number authentication
+    // If already registered, just connect. Otherwise wait for user to request pairing via dashboard
     if (!sock.authState.creds.registered) {
-        // Wait a bit for socket to initialize
-        setTimeout(async () => {
-            try {
-                addLog('connection', 'Requesting pairing code for +60174110465...')
-                console.log('📱 Requesting pairing code for +60174110465...')
-                const pairingCode = await sock.requestPairingCode('60174110465')
-                addLog('connection', `Pairing code: ${pairingCode}`)
-                console.log('🔑 Your pairing code is:', pairingCode)
-                console.log('📲 Enter this 6-digit code in WhatsApp → Settings → Linked Devices → Link a Device')
-                console.log('⚠️  Code expires in 60 seconds!')
-            } catch (error) {
-                addLog('error', `Error requesting pairing code: ${error.message}`)
-                console.log('🔄 Retrying in 5 seconds...')
-                setTimeout(() => connectToWhatsApp(), 5000)
-            }
-        }, 2000)
+        addLog('connection', 'WhatsApp not registered. Please enter your phone number in the dashboard to get a pairing code.')
+        console.log('📱 WhatsApp not registered. Use the dashboard to enter your phone number and get a pairing code.')
     }
-
 
     // Save credentials when updated
     sock.ev.on('creds.update', saveCreds)
@@ -732,8 +819,32 @@ async function connectToWhatsApp() {
     return sock
 }
 
-// Start the bot
-connectToWhatsApp().catch(console.error)
+// Start the bot - check if there's existing auth first
+async function startBot() {
+    const authPath = process.env.NODE_ENV === 'production' ? '/app/auth_info_baileys' : 'auth_info_baileys'
+    const credsFile = require('path').join(authPath, 'creds.json')
+    
+    // Check if there's an existing session
+    if (require('fs').existsSync(credsFile)) {
+        try {
+            const creds = JSON.parse(require('fs').readFileSync(credsFile, 'utf-8'))
+            if (creds.registered) {
+                console.log('📱 Found existing session, connecting...')
+                addLog('connection', 'Found existing session, connecting...')
+                await connectToWhatsApp()
+                return
+            }
+        } catch (e) {
+            // Invalid creds file, continue without connecting
+        }
+    }
+    
+    // No valid session - wait for user to request pairing from dashboard
+    console.log('📱 No existing session. Please use the dashboard to enter your phone number and get a pairing code.')
+    addLog('connection', 'No existing session. Waiting for user to request pairing code from dashboard.')
+}
+
+startBot().catch(console.error)
 
 // Graceful shutdown
 process.on('SIGINT', () => {

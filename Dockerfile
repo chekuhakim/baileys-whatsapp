@@ -40,7 +40,7 @@ COPY API_GUIDE.md ./
 COPY --from=dashboard-builder /app/dashboard/dist ./dashboard/dist
 
 # Create directories for persistent data
-RUN mkdir -p /app/auth_info_baileys /app/uploads
+RUN mkdir -p /app/auth_info_baileys /app/uploads /app/data
 
 # Set environment variables
 ENV NODE_ENV=production

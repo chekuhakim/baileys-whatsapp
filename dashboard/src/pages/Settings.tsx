@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState } from 'react'
 import { 
   Settings as SettingsIcon, 
   Server,
@@ -31,7 +31,10 @@ import { toast } from 'sonner'
 import { useHealth } from '@/hooks/useApi'
 import { api, getApiKey, clearApiKey } from '@/lib/api'
 
-const API_BASE = 'http://localhost:3001'
+// Dynamically detect API base URL
+const API_BASE = import.meta.env.DEV
+  ? 'http://localhost:3001'
+  : `${window.location.protocol}//${window.location.host}`
 
 const endpoints = [
   { method: 'GET', path: '/health', description: 'Check API health (no auth)', auth: false },
