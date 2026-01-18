@@ -10,6 +10,7 @@ import { Messages } from '@/pages/Messages'
 import { History } from '@/pages/History'
 import { Logs } from '@/pages/Logs'
 import { Settings } from '@/pages/Settings'
+import { AutoReply } from '@/pages/AutoReply'
 import { getApiKey, api } from '@/lib/api'
 
 function App() {
@@ -63,6 +64,7 @@ function App() {
             <Route path="connection" element={<Connection />} />
             <Route path="messages" element={<Messages />} />
             <Route path="history" element={<History />} />
+            <Route path="auto-reply" element={<AutoReply />} />
             <Route path="logs" element={<Logs />} />
             <Route path="settings" element={<Settings />} />
           </Route>

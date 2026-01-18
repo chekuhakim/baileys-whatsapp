@@ -1,14 +1,15 @@
 import { NavLink, Outlet } from 'react-router-dom'
-import { 
-  LayoutDashboard, 
-  Link2, 
-  MessageSquare, 
-  ScrollText, 
+import {
+  LayoutDashboard,
+  Link2,
+  MessageSquare,
+  ScrollText,
   Settings,
   Menu,
   X,
   Smartphone,
-  History
+  History,
+  Bot
 } from 'lucide-react'
 import { useState } from 'react'
 import { Button } from '@/components/ui/button'
@@ -22,6 +23,7 @@ const navItems = [
   { to: '/connection', icon: Link2, label: 'Connection' },
   { to: '/messages', icon: MessageSquare, label: 'Send Message' },
   { to: '/history', icon: History, label: 'Message History' },
+  { to: '/auto-reply', icon: Bot, label: 'Auto Reply' },
   { to: '/logs', icon: ScrollText, label: 'Logs' },
   { to: '/settings', icon: Settings, label: 'Settings' },
 ]

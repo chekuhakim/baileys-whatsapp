@@ -1,7 +1,8 @@
-import { 
-  Activity, 
-  MessageSquare, 
-  Clock, 
+import { useState, useEffect } from 'react'
+import {
+  Activity,
+  MessageSquare,
+  Clock,
   Wifi,
   WifiOff,
   ArrowUpRight,
@@ -10,7 +11,8 @@ import {
 } from 'lucide-react'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
-import { useStatus, useLogs } from '@/hooks/useApi'
+import { useStatus } from '@/hooks/useApi'
+import { api, type LogEntry } from '@/lib/api'
 import { cn } from '@/lib/utils'
 
 function formatUptime(seconds: number): string {
@@ -30,14 +32,36 @@ function formatBytes(bytes: number): string {
 
 export function Dashboard() {
   const { data: status, loading: statusLoading, error: statusError } = useStatus()
-  const { data: logs } = useLogs(50)
+  const [messagesIn, setMessagesIn] = useState(0)
+  const [messagesOut, setMessagesOut] = useState(0)
+  const [recentLogs, setRecentLogs] = useState<LogEntry[]>([])
 
   const isConnected = status?.connection?.connected
-  const recentLogs = logs?.logs?.slice(0, 5) || []
-  
-  // Count messages
-  const messagesIn = logs?.logs?.filter(l => l.type === 'message_in').length || 0
-  const messagesOut = logs?.logs?.filter(l => l.type === 'message_out').length || 0
+
+  // Fetch message counts separately
+  useEffect(() => {
+    const fetchMessageCounts = async () => {
+      try {
+        const [outRes, inRes] = await Promise.all([
+          api.getLogs(1000, 'message_out'), // Get more logs to ensure we count all
+          api.getLogs(1000, 'message_in')
+        ])
+        setMessagesOut(outRes.logs.length)
+        setMessagesIn(inRes.logs.length)
+
+        // Get recent logs for the activity feed
+        const allLogs = [...outRes.logs.slice(0, 3), ...inRes.logs.slice(0, 3)]
+          .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime())
+        setRecentLogs(allLogs.slice(0, 5))
+      } catch (error) {
+        console.error('Failed to fetch message counts:', error)
+      }
+    }
+
+    fetchMessageCounts()
+    const interval = setInterval(fetchMessageCounts, 10000) // Update every 10 seconds
+    return () => clearInterval(interval)
+  }, [])
 
   if (statusError) {
     return (

@@ -114,6 +114,23 @@ export interface ApiKeyResponse {
   error?: string
 }
 
+export interface AutoReplyResponse {
+  success: boolean
+  auto_replies?: AutoReplyRule[]
+  message?: string
+  id?: number
+  error?: string
+}
+
+export interface AutoReplyRule {
+  id: number
+  trigger_word: string
+  reply_message: string
+  is_active: boolean
+  created_at: string
+  updated_at: string
+}
+
 async function handleResponse<T>(response: Response): Promise<T> {
   const data = await response.json()
   if (response.status === 401 || response.status === 403) {
@@ -250,5 +267,38 @@ export const api = {
     } catch {
       return false
     }
+  },
+
+  // Auto-reply management
+  async getAutoReplies(): Promise<AutoReplyResponse> {
+    const response = await fetch(`${API_BASE}/api/auto-replies`, {
+      headers: authHeaders()
+    })
+    return handleResponse(response)
+  },
+
+  async addAutoReply(triggerWord: string, replyMessage: string): Promise<AutoReplyResponse> {
+    const response = await fetch(`${API_BASE}/api/auto-replies`, {
+      method: 'POST',
+      headers: authHeaders(),
+      body: JSON.stringify({ trigger_word: triggerWord, reply_message: replyMessage })
+    })
+    return handleResponse(response)
+  },
+
+  async deleteAutoReply(id: number): Promise<AutoReplyResponse> {
+    const response = await fetch(`${API_BASE}/api/auto-replies/${id}`, {
+      method: 'DELETE',
+      headers: authHeaders()
+    })
+    return handleResponse(response)
+  },
+
+  async toggleAutoReply(id: number): Promise<AutoReplyResponse> {
+    const response = await fetch(`${API_BASE}/api/auto-replies/${id}/toggle`, {
+      method: 'PUT',
+      headers: authHeaders()
+    })
+    return handleResponse(response)
   }
 }

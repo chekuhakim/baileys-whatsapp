@@ -28,6 +28,9 @@ interface MessageLog extends LogEntry {
     content?: string
     caption?: string
     type?: string
+    fileName?: string
+    fileType?: string
+    mimeType?: string
   }
 }
 
@@ -65,10 +68,32 @@ function formatTime(timestamp: string): string {
 
 function MessageCard({ message, type }: { message: MessageLog; type: 'out' | 'in' }) {
   const isOutgoing = type === 'out'
-  const contact = isOutgoing 
-    ? formatPhoneNumber(message.details.to || '') 
+  const contact = isOutgoing
+    ? formatPhoneNumber(message.details.to || '')
     : formatPhoneNumber(message.details.from || '')
-  const content = message.details.preview || message.details.content || message.details.caption || ''
+
+  // Enhanced content extraction with file type information
+  let content = ''
+  if (message.details.fileName && message.details.fileType) {
+    // File message - show file info
+    const fileEmoji = {
+      'image': '🖼️',
+      'video': '🎬',
+      'audio': '🎵',
+      'document': '📄'
+    }[message.details.fileType] || '📎'
+    content = `${fileEmoji} [${message.details.fileType}: ${message.details.fileName}]`
+    if (message.details.caption) {
+      content += ` ${message.details.caption}`
+    } else if (message.details.preview) {
+      content += ` ${message.details.preview}`
+    } else if (message.details.content) {
+      content += ` ${message.details.content}`
+    }
+  } else {
+    // Text message - use preview, content, or caption
+    content = message.details.preview || message.details.content || message.details.caption || ''
+  }
   
   return (
     <div className={cn(

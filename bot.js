@@ -25,10 +25,19 @@ db.exec(`
     );
     CREATE INDEX IF NOT EXISTS idx_logs_timestamp ON logs(timestamp DESC);
     CREATE INDEX IF NOT EXISTS idx_logs_type ON logs(type);
-    
+
     CREATE TABLE IF NOT EXISTS config (
         key TEXT PRIMARY KEY,
         value TEXT NOT NULL,
+        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+
+    CREATE TABLE IF NOT EXISTS auto_replies (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        trigger_word TEXT UNIQUE NOT NULL,
+        reply_message TEXT NOT NULL,
+        is_active BOOLEAN DEFAULT 1,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
         updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
     );
 `)
@@ -65,6 +74,27 @@ function regenerateApiKey() {
 
 // Initialize API key
 let API_KEY = getOrCreateApiKey()
+
+// Initialize default auto-reply rules
+function initializeAutoReplies() {
+    const defaultReplies = [
+        { trigger_word: 'bong', reply_message: 'bing' },
+        { trigger_word: 'hello', reply_message: 'Hi there! 👋' },
+        { trigger_word: 'ping', reply_message: 'pong 🏓' }
+    ]
+
+    const checkExisting = db.prepare('SELECT COUNT(*) as count FROM auto_replies')
+    if (checkExisting.get().count === 0) {
+        const insertReply = db.prepare('INSERT OR IGNORE INTO auto_replies (trigger_word, reply_message) VALUES (?, ?)')
+        for (const reply of defaultReplies) {
+            insertReply.run(reply.trigger_word, reply.reply_message)
+        }
+        console.log('📝 Initialized default auto-reply rules')
+    }
+}
+
+// Call initialization
+initializeAutoReplies()
 
 // Prepared statements for better performance
 const insertLog = db.prepare(`
@@ -697,6 +727,111 @@ app.post('/api/apikey/regenerate', (req, res) => {
     })
 })
 
+// Auto-Reply Management endpoints
+app.get('/api/auto-replies', (req, res) => {
+    try {
+        const getReplies = db.prepare('SELECT id, trigger_word, reply_message, is_active, created_at, updated_at FROM auto_replies ORDER BY created_at DESC')
+        const replies = getReplies.all()
+        res.json({
+            success: true,
+            auto_replies: replies
+        })
+    } catch (error) {
+        res.status(500).json({
+            success: false,
+            error: error.message
+        })
+    }
+})
+
+app.post('/api/auto-replies', (req, res) => {
+    try {
+        const { trigger_word, reply_message } = req.body
+
+        if (!trigger_word || !reply_message) {
+            return res.status(400).json({
+                success: false,
+                error: 'Both trigger_word and reply_message are required'
+            })
+        }
+
+        const insertReply = db.prepare('INSERT INTO auto_replies (trigger_word, reply_message) VALUES (?, ?)')
+        const result = insertReply.run(trigger_word, reply_message)
+
+        addLog('info', `Auto-reply rule added: "${trigger_word}" -> "${reply_message}"`)
+
+        res.json({
+            success: true,
+            message: 'Auto-reply rule added successfully',
+            id: result.lastInsertRowid
+        })
+    } catch (error) {
+        if (error.code === 'SQLITE_CONSTRAINT_UNIQUE') {
+            res.status(400).json({
+                success: false,
+                error: 'Trigger word already exists'
+            })
+        } else {
+            res.status(500).json({
+                success: false,
+                error: error.message
+            })
+        }
+    }
+})
+
+app.delete('/api/auto-replies/:id', (req, res) => {
+    try {
+        const { id } = req.params
+        const deleteReply = db.prepare('DELETE FROM auto_replies WHERE id = ?')
+        const result = deleteReply.run(id)
+
+        if (result.changes > 0) {
+            addLog('info', `Auto-reply rule deleted: ID ${id}`)
+            res.json({
+                success: true,
+                message: 'Auto-reply rule deleted successfully'
+            })
+        } else {
+            res.status(404).json({
+                success: false,
+                error: 'Auto-reply rule not found'
+            })
+        }
+    } catch (error) {
+        res.status(500).json({
+            success: false,
+            error: error.message
+        })
+    }
+})
+
+app.put('/api/auto-replies/:id/toggle', (req, res) => {
+    try {
+        const { id } = req.params
+        const toggleReply = db.prepare('UPDATE auto_replies SET is_active = NOT is_active, updated_at = CURRENT_TIMESTAMP WHERE id = ?')
+        const result = toggleReply.run(id)
+
+        if (result.changes > 0) {
+            addLog('info', `Auto-reply rule toggled: ID ${id}`)
+            res.json({
+                success: true,
+                message: 'Auto-reply rule status updated'
+            })
+        } else {
+            res.status(404).json({
+                success: false,
+                error: 'Auto-reply rule not found'
+            })
+        }
+    } catch (error) {
+        res.status(500).json({
+            success: false,
+            error: error.message
+        })
+    }
+})
+
 // Legacy endpoints (redirect to /api/ with auth) - for backward compatibility
 // These will require API key now
 app.get('/status', authenticateApiKey, (req, res) => res.redirect(307, '/api/status'))
@@ -905,28 +1040,22 @@ async function connectToWhatsApp() {
                 content: messageContent
             })
 
-            // AUTO-REPLY LOGIC HERE
-            // Example: Reply "bing" when someone sends "bong"
-            if (messageContent.toLowerCase() === 'bong') {
-                await sock.sendMessage(sender, {
-                    text: 'bing'
-                })
-                addLog('message_out', 'Auto-replied: bing', { to: sender })
-            }
+            // AUTO-REPLY LOGIC - Now uses database rules
+            const getActiveReplies = db.prepare('SELECT trigger_word, reply_message FROM auto_replies WHERE is_active = 1')
+            const activeReplies = getActiveReplies.all()
 
-            // Add more auto-reply rules here
-            else if (messageContent.toLowerCase() === 'hello') {
-                await sock.sendMessage(sender, {
-                    text: 'Hi there! 👋'
-                })
-                addLog('message_out', 'Auto-replied: Hi there!', { to: sender })
-            }
-
-            else if (messageContent.toLowerCase() === 'ping') {
-                await sock.sendMessage(sender, {
-                    text: 'pong 🏓'
-                })
-                addLog('message_out', 'Auto-replied: pong', { to: sender })
+            // Check if message matches any trigger word
+            for (const reply of activeReplies) {
+                if (messageContent.toLowerCase().includes(reply.trigger_word.toLowerCase())) {
+                    await sock.sendMessage(sender, {
+                        text: reply.reply_message
+                    })
+                    addLog('message_out', `Auto-replied: ${reply.reply_message}`, {
+                        to: sender,
+                        trigger: reply.trigger_word
+                    })
+                    break // Only reply to first matching rule
+                }
             }
         }
     })
