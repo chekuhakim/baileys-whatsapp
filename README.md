@@ -233,6 +233,43 @@ image: [image file]
 caption: Optional caption
 ```
 
+#### Compress PDF (Async with Webhook)
+```http
+POST /api/compress-pdf
+Content-Type: multipart/form-data
+
+pdf: [pdf file]
+webhookUrl: https://your-netlify-function-url
+```
+
+**Response:**
+```json
+{
+  "success": true,
+  "jobId": "unique-job-id",
+  "message": "PDF compression started. Results will be sent to webhook.",
+  "status": "processing"
+}
+```
+
+**Webhook Payload (when completed):**
+```json
+{
+  "jobId": "unique-job-id",
+  "status": "completed",
+  "originalFilename": "document.pdf",
+  "compressedFilename": "compressed_1234567890_document.pdf",
+  "originalSize": 2048576,
+  "compressedSize": 1048576,
+  "compressionRatio": 48.83,
+  "fileData": "base64-encoded-pdf-data...",
+  "mimeType": "application/pdf",
+  "completedAt": "2026-01-18T06:30:00.000Z"
+}
+```
+
+**Note:** The compressed PDF file data is sent directly in the webhook payload as base64, eliminating the need for additional downloads or phone number requirements.
+
 #### Request Pairing Code
 ```http
 POST /api/request-pairing

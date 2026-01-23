@@ -40,8 +40,6 @@ services:
       - "traefik.http.routers.wagateway-http.middlewares=redirect-to-https"
       - "traefik.http.middlewares.redirect-to-https.redirectscheme.scheme=https"
     networks:
-      - traefik
-
-networks:
+      - traefiknetworks:
   traefik:
     external: true

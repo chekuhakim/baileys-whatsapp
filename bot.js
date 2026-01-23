@@ -40,6 +40,21 @@ db.exec(`
         created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
         updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
     );
+
+    CREATE TABLE IF NOT EXISTS pdf_compression_jobs (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        job_id TEXT UNIQUE NOT NULL,
+        webhook_url TEXT NOT NULL,
+        original_filename TEXT,
+        compressed_filename TEXT,
+        status TEXT DEFAULT 'processing', -- processing, completed, failed
+        original_size INTEGER,
+        compressed_size INTEGER,
+        compression_ratio REAL,
+        error_message TEXT,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        completed_at DATETIME
+    );
 `)
 
 // API Key Management
@@ -1089,6 +1104,142 @@ async function startBot() {
 }
 
 startBot().catch(console.error)
+
+// PDF Compression function
+async function compressPdfAsync(jobId, inputPath, originalFilename) {
+    const outputFilename = `compressed_${Date.now()}_${originalFilename}`
+    const outputPath = path.join('uploads', outputFilename)
+
+    try {
+        // Ghostscript command for PDF compression
+        // -sDEVICE=pdfwrite: output as PDF
+        // -dCompatibilityLevel=1.4: PDF version
+        // -dPDFSETTINGS=/ebook: compression preset (can be /screen, /ebook, /prepress, /printer)
+        // -dNOPAUSE -dQUIET -dBATCH: batch processing
+        const gsCommand = `gs -sDEVICE=pdfwrite -dCompatibilityLevel=1.4 -dPDFSETTINGS=/ebook -dNOPAUSE -dQUIET -dBATCH -sOutputFile=${outputPath} ${inputPath}`
+
+        addLog('info', `Starting PDF compression for job ${jobId}`)
+
+        const { stdout, stderr } = await execAsync(gsCommand)
+
+        // Check if output file was created
+        if (!fs.existsSync(outputPath)) {
+            throw new Error('Compressed PDF was not created')
+        }
+
+        // Get file sizes
+        const originalStats = fs.statSync(inputPath)
+        const compressedStats = fs.statSync(outputPath)
+
+        const compressionRatio = ((originalStats.size - compressedStats.size) / originalStats.size * 100).toFixed(2)
+
+        // Update job record
+        const updateJob = db.prepare(`
+            UPDATE pdf_compression_jobs
+            SET status = 'completed',
+                compressed_filename = ?,
+                compressed_size = ?,
+                compression_ratio = ?,
+                completed_at = CURRENT_TIMESTAMP
+            WHERE job_id = ?
+        `)
+        updateJob.run(outputFilename, compressedStats.size, compressionRatio, jobId)
+
+        // Clean up original file
+        fs.unlinkSync(inputPath)
+
+        // Send webhook
+        const getJob = db.prepare('SELECT * FROM pdf_compression_jobs WHERE job_id = ?')
+        const job = getJob.get(jobId)
+
+        // Read compressed file and send in webhook
+        const compressedFilePath = path.join('uploads', outputFilename)
+        const compressedFileData = fs.readFileSync(compressedFilePath)
+        const base64Data = compressedFileData.toString('base64')
+
+        // Send webhook with file data directly
+        const webhookPayload = {
+            jobId: job.job_id,
+            status: 'completed',
+            originalFilename: job.original_filename,
+            compressedFilename: outputFilename,
+            originalSize: job.original_size,
+            compressedSize: job.compressed_size,
+            compressionRatio: parseFloat(job.compression_ratio),
+            fileData: base64Data,
+            mimeType: 'application/pdf',
+            completedAt: job.completed_at
+        }
+
+        // Send webhook
+        try {
+            const webhookResponse = await fetch(job.webhook_url, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'User-Agent': 'WhatsApp-PDF-Compressor/1.0'
+                },
+                body: JSON.stringify(webhookPayload)
+            })
+
+            if (webhookResponse.ok) {
+                addLog('info', `Webhook sent successfully for job ${jobId}`)
+            } else {
+                addLog('error', `Webhook failed for job ${jobId}: ${webhookResponse.status}`)
+            }
+        } catch (webhookError) {
+            addLog('error', `Webhook error for job ${jobId}: ${webhookError.message}`)
+        }
+
+        addLog('info', `PDF compression completed for job ${jobId}: ${compressionRatio}% reduction`)
+
+    } catch (error) {
+        addLog('error', `PDF compression failed for job ${jobId}: ${error.message}`)
+
+        // Update job record with error
+        const updateJobError = db.prepare(`
+            UPDATE pdf_compression_jobs
+            SET status = 'failed',
+                error_message = ?,
+                completed_at = CURRENT_TIMESTAMP
+            WHERE job_id = ?
+        `)
+        updateJobError.run(error.message, jobId)
+
+        // Clean up files
+        if (fs.existsSync(inputPath)) {
+            fs.unlinkSync(inputPath)
+        }
+        if (fs.existsSync(outputPath)) {
+            fs.unlinkSync(outputPath)
+        }
+
+        // Send error webhook
+        try {
+            const getJob = db.prepare('SELECT webhook_url FROM pdf_compression_jobs WHERE job_id = ?')
+            const job = getJob.get(jobId)
+
+            if (job) {
+                const errorPayload = {
+                    jobId: jobId,
+                    status: 'failed',
+                    error: error.message
+                }
+
+                await fetch(job.webhook_url, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'User-Agent': 'WhatsApp-PDF-Compressor/1.0'
+                    },
+                    body: JSON.stringify(errorPayload)
+                })
+            }
+        } catch (webhookError) {
+            addLog('error', `Error webhook failed for job ${jobId}: ${webhookError.message}`)
+        }
+    }
+}
 
 // Graceful shutdown
 process.on('SIGINT', () => {

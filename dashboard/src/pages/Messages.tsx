@@ -1,7 +1,7 @@
 import { useState, useRef } from 'react'
-import { 
-  Send, 
-  Image as ImageIcon, 
+import {
+  Send,
+  Image as ImageIcon,
   Upload,
   X,
   Loader2,
