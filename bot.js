@@ -6,7 +6,11 @@ const multer = require('multer')
 const fs = require('fs')
 const path = require('path')
 const crypto = require('crypto')
+const { exec } = require('child_process')
+const { promisify } = require('util')
 const Database = require('better-sqlite3')
+
+const execAsync = promisify(exec)
 
 // Initialize SQLite database for logs and config
 const dbPath = process.env.NODE_ENV === 'production' ? '/app/data/logs.db' : 'logs.db'
@@ -839,6 +843,111 @@ app.put('/api/auto-replies/:id/toggle', (req, res) => {
                 error: 'Auto-reply rule not found'
             })
         }
+    } catch (error) {
+        res.status(500).json({
+            success: false,
+            error: error.message
+        })
+    }
+})
+
+// PDF Compression endpoints
+app.post('/api/compress-pdf', upload.single('pdf'), async (req, res) => {
+    try {
+        const { webhookUrl } = req.body
+        const pdfFile = req.file
+
+        if (!webhookUrl) {
+            return res.status(400).json({
+                success: false,
+                error: 'webhookUrl is required'
+            })
+        }
+
+        if (!pdfFile) {
+            return res.status(400).json({
+                success: false,
+                error: 'PDF file is required'
+            })
+        }
+
+        // Validate it's a PDF
+        if (pdfFile.mimetype !== 'application/pdf') {
+            // Clean up uploaded file
+            fs.unlinkSync(pdfFile.path)
+            return res.status(400).json({
+                success: false,
+                error: 'Only PDF files are allowed'
+            })
+        }
+
+        // Generate unique job ID
+        const jobId = crypto.randomBytes(16).toString('hex')
+
+        // Insert job record
+        const insertJob = db.prepare(`
+            INSERT INTO pdf_compression_jobs (job_id, webhook_url, original_filename, original_size, status)
+            VALUES (?, ?, ?, ?, 'processing')
+        `)
+        insertJob.run(jobId, webhookUrl, pdfFile.originalname, pdfFile.size)
+
+        // Start compression asynchronously
+        compressPdfAsync(jobId, pdfFile.path, pdfFile.originalname)
+
+        addLog('info', `PDF compression job started: ${jobId}`)
+
+        res.json({
+            success: true,
+            jobId: jobId,
+            message: 'PDF compression started. Results will be sent to webhook.',
+            status: 'processing'
+        })
+
+    } catch (error) {
+        addLog('error', `Error starting PDF compression: ${error.message}`)
+
+        // Clean up file if it exists
+        if (req.file && fs.existsSync(req.file.path)) {
+            fs.unlinkSync(req.file.path)
+        }
+
+        res.status(500).json({
+            success: false,
+            error: error.message
+        })
+    }
+})
+
+// Get compression job status
+app.get('/api/compress-pdf/:jobId', (req, res) => {
+    try {
+        const { jobId } = req.params
+        const getJob = db.prepare('SELECT * FROM pdf_compression_jobs WHERE job_id = ?')
+        const job = getJob.get(jobId)
+
+        if (!job) {
+            return res.status(404).json({
+                success: false,
+                error: 'Job not found'
+            })
+        }
+
+        res.json({
+            success: true,
+            job: {
+                id: job.id,
+                jobId: job.job_id,
+                status: job.status,
+                originalFilename: job.original_filename,
+                compressedFilename: job.compressed_filename,
+                originalSize: job.original_size,
+                compressedSize: job.compressed_size,
+                compressionRatio: job.compression_ratio,
+                createdAt: job.created_at,
+                completedAt: job.completed_at,
+                errorMessage: job.error_message
+            }
+        })
     } catch (error) {
         res.status(500).json({
             success: false,

@@ -7,6 +7,8 @@ services:
       dockerfile: Dockerfile
     container_name: baileys-whatsapp
     restart: unless-stopped
+    ports:
+      - "3001:3001"
     volumes:
       # Persist WhatsApp session data
       - ./data/auth_info_baileys:/app/auth_info_baileys
@@ -40,6 +42,8 @@ services:
       - "traefik.http.routers.wagateway-http.middlewares=redirect-to-https"
       - "traefik.http.middlewares.redirect-to-https.redirectscheme.scheme=https"
     networks:
-      - traefiknetworks:
+      - traefik
+
+networks:
   traefik:
     external: true
